@@ -1,0 +1,6 @@
+**/*firmware*
+**/.DS_Store
+**/.direnv
+**/result
+**/rustc-ice-*
+**/target

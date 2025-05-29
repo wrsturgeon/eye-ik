@@ -1,0 +1,63 @@
+[package]
+name = "eye-bot-inverse-kinematics"
+version = "0.1.0"
+edition = "2024"
+resolver = "2"
+
+[build-dependencies]
+reqwest = { version = "*", features = ["blocking"] }
+
+[dependencies]
+bt-hci = { version = "*", features = ["defmt"] }
+cortex-m-rt = { version = "*" }
+cyw43 = { version = "*", features = ["bluetooth", "defmt", "firmware-logs"] }
+cyw43-pio = { version = "*", features = ["defmt"] }
+defmt = { version = "*" }
+defmt-rtt = { version = "*" }
+embassy-executor = { version = "*", features = [
+  "arch-cortex-m",
+  "defmt",
+  "executor-interrupt",
+  "executor-thread",
+  "nightly",
+] }
+embassy-futures = { version = "*" }
+embassy-net = { version = "*", features = [
+  "defmt",
+  "dhcpv4",
+  "dns",
+  "medium-ethernet",
+  "multicast",
+  "packet-trace",
+  "proto-ipv4",
+  "proto-ipv6",
+  "raw",
+  "tcp",
+  "udp",
+] }
+embassy-rp = { version = "*", features = [
+  "binary-info",
+  "critical-section-impl",
+  "defmt",
+  "rp235xa",
+  "time-driver",
+  "unstable-pac",
+] }
+embassy-sync = { version = "*" }
+embassy-time = { version = "*", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-usb = "*"
+embassy-usb-logger = "*"
+fixed = "*"
+heapless = { version = "*" }
+libm = "*"
+log = "*"
+osc-router-traits = "*"
+panic-probe = { version = "*", features = ["print-defmt"] }
+rand_core = { version = "0.6.4" }
+static_cell = { version = "*" }
+trouble-host = { git = "https://github.com/embassy-rs/trouble.git", features = [
+  "defmt",
+] }
+
+[dev-dependencies]
+paste = "*"
