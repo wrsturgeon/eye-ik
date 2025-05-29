@@ -2,17 +2,19 @@
 #![no_main]
 #![feature(impl_trait_in_assoc_type)]
 
+pub mod ik;
+
 use {
     defmt_rtt as _,
     embassy_executor::Spawner,
     embassy_rp::{
         bind_interrupts,
         peripherals::{UART1, USB},
-        pwm::{self, Pwm},
+        pwm::{self, SetDutyCycle as _, Pwm},
         uart, usb,
     },
     embassy_time::{Duration, Ticker, Timer},
-    fixed::{FixedU16, FixedU32, traits::LosslessTryFrom},
+    fixed::{FixedU16, FixedU32, traits::LosslessTryFrom, types::extra::U4},
     panic_probe as _,
 };
 
@@ -21,11 +23,11 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
 });
 
-type Radix = fixed::types::extra::U4;
-
-const WAVE_PERIOD_MS: u64 = 5000;
 const SERVO_PWM_PERIOD_MS: u16 = 20;
 const SERVO_PWM_FREQ_HZ: u16 = 1000 / SERVO_PWM_PERIOD_MS;
+
+const WAVE_PERIOD_MS: u16 = 500;
+const MAIN_LOOP_PERIOD_MS: u16 = SERVO_PWM_PERIOD_MS;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -60,7 +62,7 @@ async fn main(spawner: Spawner) {
     // `top = (clk_hz / (SERVO_PWM_FREQ_HZ * 2 * divider)) - 1`.
     let clk_hz: u32 = embassy_rp::clocks::clk_sys_freq();
     let () = log::info!("Clock frequency: {clk_hz:?} Hz");
-    let Some(clk_hz) = FixedU32::<Radix>::checked_from_num(clk_hz) else {
+    let Some(clk_hz) = FixedU32::<U4>::checked_from_num(clk_hz) else {
         let mut ticker = Ticker::every(Duration::from_secs(1));
         loop {
             let () = log::info!("Clock frequency: {clk_hz:?} Hz");
@@ -70,7 +72,7 @@ async fn main(spawner: Spawner) {
     };
     let divider = {
         let denominator = (SERVO_PWM_FREQ_HZ as u32) << 17;
-        let Some(denominator) = FixedU32::<Radix>::checked_from_num(denominator) else {
+        let Some(denominator) = FixedU32::<U4>::checked_from_num(denominator) else {
             let mut ticker = Ticker::every(Duration::from_secs(1));
             loop {
                 let () = log::info!("Clock frequency: {clk_hz:?} Hz");
@@ -80,12 +82,12 @@ async fn main(spawner: Spawner) {
                 let () = ticker.next().await;
             }
         };
-        (clk_hz / denominator) + FixedU32::<Radix>::from_bits(1)
+        (clk_hz / denominator) + FixedU32::<U4>::from_bits(1)
     };
     let () = log::info!("Clock divider: {divider:?}");
-    let top: FixedU32<Radix> = {
+    let top: FixedU32<U4> = {
         let denominator = (SERVO_PWM_FREQ_HZ as u32 * divider) << 1;
-        let Some(denominator) = FixedU32::<Radix>::checked_from_num(denominator) else {
+        let Some(denominator) = FixedU32::<U4>::checked_from_num(denominator) else {
             let mut ticker = Ticker::every(Duration::from_secs(1));
             loop {
                 let () = log::info!("Clock frequency: {clk_hz:?} Hz");
@@ -95,7 +97,7 @@ async fn main(spawner: Spawner) {
                 let () = ticker.next().await;
             }
         };
-        (clk_hz / denominator) - FixedU32::<Radix>::ONE
+        (clk_hz / denominator) - FixedU32::<U4>::ONE
     };
     let () = log::info!("Clock top: {top:?}");
     let Some(top) = top.floor().checked_to_num() else {
@@ -108,7 +110,7 @@ async fn main(spawner: Spawner) {
             let () = ticker.next().await;
         }
     };
-    let Some(divider) = FixedU16::<Radix>::lossless_try_from(divider) else {
+    let Some(divider) = FixedU16::<U4>::lossless_try_from(divider) else {
         let mut ticker = Ticker::every(Duration::from_secs(1));
         loop {
             let () = log::info!("Clock frequency: {clk_hz:?} Hz");
@@ -119,30 +121,81 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let pwm_min = top / 20;
-    let pwm_max = top / 10;
-    let pwm_ctr = (pwm_min + pwm_max + 1) >> 1;
+    let pwm_min = (top as f32) / 20.0;
+    let pwm_max = (top as f32) / 10.0;
+    let pwm_ctr = 0.5 * (pwm_min + pwm_max);
+    let pwm_rng = pwm_ctr - pwm_min;
+
+    let (pwm_hip, pwm_knee) = Pwm::new_output_ab(p.PWM_SLICE7, p.PIN_14, p.PIN_15, {
     let mut cfg = pwm::Config::default();
-    cfg.compare_a = pwm_ctr;
-    cfg.compare_b = pwm_ctr;
+    cfg.compare_a = pwm_ctr as _;
+    cfg.compare_b = pwm_ctr as _;
     cfg.divider = divider;
     cfg.enable = true;
     cfg.phase_correct = true;
     cfg.top = top;
+    cfg
+    }).split();
+    let Some(mut pwm_hip) = pwm_hip else {
+        let mut ticker = Ticker::every(Duration::from_secs(1));
+        loop {
+            let () = log::info!("Clock frequency: {clk_hz:?} Hz");
+            let () = log::info!("Clock divider: {divider:?}");
+            let () = log::info!("Clock top: {top:?}");
+            let () = log::error!("No hip PWM (no fucking clue what this means, though)");
+            let () = ticker.next().await;
+        }
+    };
+    let Some(mut pwm_knee) = pwm_knee else {
+        let mut ticker = Ticker::every(Duration::from_secs(1));
+        loop {
+            let () = log::info!("Clock frequency: {clk_hz:?} Hz");
+            let () = log::info!("Clock divider: {divider:?}");
+            let () = log::info!("Clock top: {top:?}");
+            let () = log::error!("No knee PWM (no fucking clue what this means, though)");
+            let () = ticker.next().await;
+        }
+    };
 
-    let pwm1 = Pwm::new_output_b(p.PWM_SLICE6, p.PIN_13, cfg.clone());
-    let pwm2 = Pwm::new_output_b(p.PWM_SLICE7, p.PIN_15, cfg.clone());
+    let leg = ik::Leg {
+        length_hip_to_knee: 2.0,
+        length_knee_to_foot: 2.0,
+    };
 
-    let mut ticker = Ticker::every(Duration::from_secs(1));
+    let mut counter: u16 = 0;
+    let mut ticker = Ticker::every(Duration::from_millis(MAIN_LOOP_PERIOD_MS as _));
     loop {
-        /*
         let theta =
-            const { 2_f32 * core::f32::consts::PI } * ((counter as f32) / (WAVE_PERIOD_MS as f32));
-        let x = 0.5_f32 * (1_f32 + libm::cosf(theta));
-        let y = 0.5_f32 * (1_f32 + libm::sinf(theta));
-        log::info!("({x:01.2:?}, {y:01.2:?})");
-        */
-        let () = log::info!("Hello!");
+            (counter as f32) * const { 2.0 * core::f32::consts::PI / (WAVE_PERIOD_MS as f32) };
+
+        let x = 2.25 + 0.5 * libm::cosf(theta);
+        let y = -2.25 - 0.5 * libm::sinf(theta);
+        let xy = (x, y);
+        let vec_from_knee_to_foot = ik::Cartesian { x, y };
+
+        let servos = leg
+            .inverse_kinematics(vec_from_knee_to_foot)
+            .map(|ik::Servos { hip, knee }| (hip, knee));
+
+        log::info!("");
+        log::info!("Cartesian: {:01.2?}", Result::<_, ()>::Ok(xy));
+        log::info!("Servo(IK): {servos:01.2?}");
+
+        if let Ok((hip, knee)) = servos {
+            match pwm_hip.set_duty_cycle((pwm_ctr - pwm_rng * hip) as _) {
+                Ok(()) => {}
+                Err(e) => log::error!("Couldn't set hip duty cycle: {e:?}"),
+            }
+            match pwm_knee.set_duty_cycle((pwm_ctr + pwm_rng * knee) as _) {
+                Ok(()) => {}
+                Err(e) => log::error!("Couldn't set knee duty cycle: {e:?}"),
+            }
+        }
+
         let () = ticker.next().await;
+        counter += MAIN_LOOP_PERIOD_MS;
+        if counter >= WAVE_PERIOD_MS {
+            counter -= WAVE_PERIOD_MS;
+        }
     }
 }
