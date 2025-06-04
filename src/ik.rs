@@ -114,7 +114,8 @@ impl Leg {
             theta_hip * const { 1.0 / (0.5 * PI) }
         };
 
-        let knee = if (theta_knee < KNEE_SERVO_MIN_RADIANS) || (theta_knee > KNEE_SERVO_MAX_RADIANS) {
+        let knee = if (theta_knee < KNEE_SERVO_MIN_RADIANS) || (theta_knee > KNEE_SERVO_MAX_RADIANS)
+        {
             return Err(Error::ServoOutOfRange(ServoOutOfRange::Knee {
                 radians: theta_knee,
             }));

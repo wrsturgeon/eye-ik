@@ -10,7 +10,7 @@ use {
     embassy_rp::{
         bind_interrupts,
         peripherals::{UART1, USB},
-        pwm::{self, SetDutyCycle as _, Pwm},
+        pwm::{self, Pwm, SetDutyCycle as _},
         uart, usb,
     },
     embassy_time::{Duration, Ticker, Timer},
@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs {
 const SERVO_PWM_PERIOD_MS: u16 = 20;
 const SERVO_PWM_FREQ_HZ: u16 = 1000 / SERVO_PWM_PERIOD_MS;
 
-const WAVE_PERIOD_MS: u16 = 500;
+const WAVE_PERIOD_MS: u16 = 1000;
 const MAIN_LOOP_PERIOD_MS: u16 = SERVO_PWM_PERIOD_MS;
 
 #[embassy_executor::main]
@@ -127,15 +127,16 @@ async fn main(spawner: Spawner) {
     let pwm_rng = pwm_ctr - pwm_min;
 
     let (pwm_hip, pwm_knee) = Pwm::new_output_ab(p.PWM_SLICE7, p.PIN_14, p.PIN_15, {
-    let mut cfg = pwm::Config::default();
-    cfg.compare_a = pwm_ctr as _;
-    cfg.compare_b = pwm_ctr as _;
-    cfg.divider = divider;
-    cfg.enable = true;
-    cfg.phase_correct = true;
-    cfg.top = top;
-    cfg
-    }).split();
+        let mut cfg = pwm::Config::default();
+        cfg.compare_a = pwm_ctr as _;
+        cfg.compare_b = pwm_ctr as _;
+        cfg.divider = divider;
+        cfg.enable = true;
+        cfg.phase_correct = true;
+        cfg.top = top;
+        cfg
+    })
+    .split();
     let Some(mut pwm_hip) = pwm_hip else {
         let mut ticker = Ticker::every(Duration::from_secs(1));
         loop {
@@ -158,8 +159,8 @@ async fn main(spawner: Spawner) {
     };
 
     let leg = ik::Leg {
-        length_hip_to_knee: 2.0,
-        length_knee_to_foot: 2.0,
+        length_hip_to_knee: 2.5,
+        length_knee_to_foot: 5.6,
     };
 
     let mut counter: u16 = 0;
@@ -168,8 +169,8 @@ async fn main(spawner: Spawner) {
         let theta =
             (counter as f32) * const { 2.0 * core::f32::consts::PI / (WAVE_PERIOD_MS as f32) };
 
-        let x = 2.25 + 0.5 * libm::cosf(theta);
-        let y = -2.25 - 0.5 * libm::sinf(theta);
+        let x = 2.75 + libm::cosf(theta);
+        let y = -5.85 - libm::sinf(theta);
         let xy = (x, y);
         let vec_from_knee_to_foot = ik::Cartesian { x, y };
 
