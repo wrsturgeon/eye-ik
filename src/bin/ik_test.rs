@@ -45,7 +45,7 @@ async fn main(spawner: Spawner) {
     let (pwm0, pwm1) = pwm::init_slice(p.PWM_SLICE5, p.PIN_10, p.PIN_11).await;
     let (pwm2, _pwm3) = pwm::init_slice(p.PWM_SLICE6, p.PIN_12, p.PIN_13).await;
 
-    let mut leg = match Leg::with_home_yaw(0.0, pwm0, pwm1, pwm2) {
+    let mut leg = match Leg::with_home_yaw(0.0, pwm0, pwm1, pwm2).await {
         Ok(ok) => ok,
         Err(e) => {
             let mut ticker = Ticker::every(Duration::from_secs(1));
@@ -59,11 +59,17 @@ async fn main(spawner: Spawner) {
     let mut counter: u16 = 0;
     let mut ticker = Ticker::every(Duration::from_millis(MAIN_LOOP_PERIOD_MS as _));
     loop {
-        match leg.ik_to(ik::CartesianDisplacementFromEyeCenterLookingForward {
-            x: libm::sinf(counter as f32 / 1_000.0),
-            y: libm::cosf(counter as f32 / 1_000.0),
-            z: libm::sinf(counter as f32 / 10_000.0) - ik::LENGTH_KNEE_TO_FOOT,
-        }) {
+        let foot_pos = ik::CartesianDisplacementFromEyeCenterLookingForward {
+            x: 2.0 * libm::sinf(counter as f32 / 100.0)
+                + 2.0
+                + ik::LENGTH_CENTER_TO_YAW
+                + ik::LENGTH_YAW_TO_HIP
+                + ik::LENGTH_HIP_TO_KNEE,
+            y: 2.0 * libm::cosf(counter as f32 / 100.0),
+            z: 1.0 * libm::sinf(counter as f32 / 1_000.0) + 2.0 - ik::LENGTH_KNEE_TO_FOOT,
+        };
+
+        match leg.ik_to(foot_pos) {
             Ok(()) => {}
             Err(e) => log::error!("Leg inverse kinematics error: {e:?}"),
         }

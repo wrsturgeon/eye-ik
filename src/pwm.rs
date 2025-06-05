@@ -165,7 +165,9 @@ pub async fn pulse_center() -> f32 {
 #[inline]
 pub async fn pulse_range_plus_minus() -> f32 {
     static LOCK: OnceLock<f32> = OnceLock::new();
-    *get_or_init(&LOCK, async || pulse_center().await - pulse_min().await).await
+    let if_it_were_a_normal_servo =
+        *get_or_init(&LOCK, async || pulse_center().await - pulse_min().await).await;
+    if_it_were_a_normal_servo * 2.0
 }
 
 #[inline]

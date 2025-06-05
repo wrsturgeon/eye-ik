@@ -120,8 +120,8 @@ pub fn hip_to_foot_2d(
         knee_internal_radians - const { 0.5 * PI } + hip_radians
     };
 
-    let hip = -hip_radians * pwm::RADIANS_TO_SERVO;
-    let knee = knee_radians * pwm::RADIANS_TO_SERVO;
+    let hip = hip_radians * pwm::RADIANS_TO_SERVO;
+    let knee = -knee_radians * pwm::RADIANS_TO_SERVO;
 
     // TODO: Knee lock!
 

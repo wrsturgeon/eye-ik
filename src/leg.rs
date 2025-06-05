@@ -47,7 +47,7 @@ pub struct Leg<'d> {
 
 impl<'d> Leg<'d> {
     #[inline]
-    pub fn with_home_yaw(
+    pub async fn with_home_yaw(
         home_yaw_radians: f32,
         yaw_pwm: PwmOutput<'d>,
         hip_pwm: PwmOutput<'d>,
@@ -58,24 +58,17 @@ impl<'d> Leg<'d> {
             yaw: Servo::with_center_and_ranges(
                 yaw_pwm,
                 0.0,
-                const { -PI / 6.0 },
-                const { PI / 6.0 },
+                const { -1.0 / 2.0 },
+                const { 1.0 / 2.0 },
             )
+            .await
             .map_err(CouldntInit::YawServo)?,
-            hip: Servo::with_center_and_ranges(
-                hip_pwm,
-                0.0,
-                const { -PI / 2.0 },
-                const { PI / 2.0 },
-            )
-            .map_err(CouldntInit::HipServo)?,
-            knee: Servo::with_center_and_ranges(
-                knee_pwm,
-                0.0,
-                const { -PI / 4.0 },
-                const { PI / 4.0 },
-            )
-            .map_err(CouldntInit::KneeServo)?,
+            hip: Servo::with_center_and_ranges(hip_pwm, 0.0, -1.0, 1.0)
+                .await
+                .map_err(CouldntInit::HipServo)?,
+            knee: Servo::with_center_and_ranges(knee_pwm, 0.0, -1.0, 0.25)
+                .await
+                .map_err(CouldntInit::KneeServo)?,
             yaw_servo_x: libm::cosf(home_yaw_radians) * ik::LENGTH_CENTER_TO_YAW,
             yaw_servo_y: libm::sinf(home_yaw_radians) * ik::LENGTH_CENTER_TO_YAW,
             home_yaw_radians,
@@ -94,12 +87,9 @@ impl<'d> Leg<'d> {
         // The (x, y) plane is as if you were looking down over the robot.
         // The z plane is up/down, as if it were jumping.
 
-        let horizontal_displacement_x = foot_x - self.yaw_servo_x;
-        let horizontal_displacement_y = foot_y - self.yaw_servo_y;
-        let global_yaw = libm::atan2f(horizontal_displacement_x, horizontal_displacement_y); // Already guaranteed to be on [-pi, pi).
-
-        // let hip_servo_x = self.yaw_servo_x + libm::cosf(global_yaw) * LENGTH_YAW_TO_HIP;
-        // let hip_servo_y = self.yaw_servo_y + libm::sinf(global_yaw) * LENGTH_YAW_TO_HIP;
+        let mut horizontal_displacement_x = foot_x - self.yaw_servo_x;
+        let mut horizontal_displacement_y = foot_y - self.yaw_servo_y;
+        let global_yaw = libm::atan2f(horizontal_displacement_y, horizontal_displacement_x); // Already guaranteed to be on [-pi, pi).
 
         // Update yaw:
         {
@@ -115,6 +105,9 @@ impl<'d> Leg<'d> {
                 .go_to(pwm::RADIANS_TO_SERVO * local_yaw)
                 .map_err(IkError::CouldntMoveYaw)?;
         };
+
+        horizontal_displacement_x -= libm::cosf(global_yaw) * ik::LENGTH_YAW_TO_HIP;
+        horizontal_displacement_y -= libm::sinf(global_yaw) * ik::LENGTH_YAW_TO_HIP;
 
         let distance_hip_to_foot_projected = {
             libm::sqrtf(
